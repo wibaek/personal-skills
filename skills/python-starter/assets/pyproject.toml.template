@@ -1,0 +1,16 @@
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+  "F",              # Pyflakes
+  "E4", "E7", "E9", # pycodestyle errors(Black과 호환되는 subset)
+  # 아래 항목은 Ruff default rule selection에 포함되지 않는다.
+  "I",              # isort
+]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
