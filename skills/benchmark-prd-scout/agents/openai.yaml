@@ -1,0 +1,7 @@
+interface:
+  display_name: "Benchmark PRD Scout"
+  short_description: "Turn product benchmarks into PRDs and MVP scope"
+  default_prompt: "Use $benchmark-prd-scout to research these products and turn the evidence into a PRD, MVP scope, and implementation backlog."
+
+policy:
+  allow_implicit_invocation: false
