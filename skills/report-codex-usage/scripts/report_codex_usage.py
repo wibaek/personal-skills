@@ -424,7 +424,9 @@ def sorted_totals(values: dict[str, Totals]) -> list[tuple[str, Totals]]:
     return sorted(values.items(), key=lambda item: (-item[1].total, item[0]))
 
 
-def million(value: int) -> str:
+def format_tokens(value: int) -> str:
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:,.3f}B"
     return f"{value / 1_000_000:,.3f}M"
 
 
@@ -435,7 +437,7 @@ def percent(value: int, total: int) -> str:
 
 
 def token_cell(value: int, total: int) -> str:
-    return f"{million(value)} ({percent(value, total)})"
+    return f"{format_tokens(value)} ({percent(value, total)})"
 
 
 def markdown_table(values: dict[str, Totals], total: Totals) -> list[str]:
@@ -449,7 +451,7 @@ def markdown_table(values: dict[str, Totals], total: Totals) -> list[str]:
             + " | ".join(
                 [
                     name,
-                    million(item.total),
+                    format_tokens(item.total),
                     token_cell(item.cached_input, item.total),
                     token_cell(item.input, item.total),
                     token_cell(item.output, item.total),
@@ -463,7 +465,7 @@ def markdown_table(values: dict[str, Totals], total: Totals) -> list[str]:
         + " | ".join(
             [
                 "합계",
-                million(total.total),
+                format_tokens(total.total),
                 token_cell(total.cached_input, total.total),
                 token_cell(total.input, total.total),
                 token_cell(total.output, total.total),
@@ -499,8 +501,6 @@ def render_markdown(report: Report) -> str:
         "### 모델별",
         "",
         *markdown_table(report.models, report.total),
-        "",
-        "비용은 실제 구독 청구액이 아니라 Standard API 환산값이다.",
     ]
     return "\n".join(lines)
 
