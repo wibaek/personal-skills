@@ -6,7 +6,7 @@ import platform
 import subprocess
 import sys
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -17,7 +17,9 @@ import tomllib
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_RATE_CARD = SKILL_ROOT / "references" / "rate-card.toml"
 DEFAULT_SESSIONS_ROOT = Path.home() / ".codex" / "sessions"
+DEFAULT_SESSION_INDEX = Path.home() / ".codex" / "session_index.jsonl"
 DEFAULT_AGENT_MEMORY_ROOT = Path.home() / "agent-memory"
+MODEL_LABEL_ORDER = ("sol", "terra", "luna", "review", "other")
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,14 @@ class Totals:
             + output * rate.output_per_million
         ) / 1_000_000
 
+    def merge(self, other: Totals) -> None:
+        self.total += other.total
+        self.cached_input += other.cached_input
+        self.input += other.input
+        self.output += other.output
+        self.calculated_cost += other.calculated_cost
+        self.events += other.events
+
 
 @dataclass
 class Diagnostics:
@@ -82,6 +92,14 @@ class Diagnostics:
 
 
 @dataclass
+class SessionUsage:
+    session_id: str
+    title: str
+    models: set[str] = field(default_factory=set)
+    totals: Totals = field(default_factory=Totals)
+
+
+@dataclass
 class Report:
     target_date: date
     timezone_name: str
@@ -91,6 +109,7 @@ class Report:
     computer_name: str
     projects: dict[str, Totals]
     models: dict[str, Totals]
+    sessions: dict[str, dict[str, SessionUsage]]
     total: Totals
     diagnostics: Diagnostics
 
@@ -170,6 +189,43 @@ def rate_for(
         rate for rate in rates.get(model, []) if rate.effective_from <= target_date
     ]
     return candidates[-1] if candidates else None
+
+
+def load_session_titles(path: Path) -> dict[str, str]:
+    titles: dict[str, str] = {}
+    try:
+        handle = path.open("r", encoding="utf-8")
+    except OSError:
+        return titles
+
+    with handle:
+        for line in handle:
+            try:
+                row = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            session_id = row.get("id")
+            title = row.get("thread_name")
+            if isinstance(session_id, str) and isinstance(title, str) and title:
+                titles[session_id] = title
+    return titles
+
+
+def model_label(model: str) -> str:
+    normalized = model.lower()
+    if normalized in {"gpt-5.6", "gpt-5.6-sol"} or "5.6-sol" in normalized:
+        return "sol"
+    if "terra" in normalized:
+        return "terra"
+    if "luna" in normalized:
+        return "luna"
+    if normalized == "codex-auto-review" or "auto-review" in normalized:
+        return "review"
+    return "other"
+
+
+def display_models(models: set[str]) -> str:
+    return ", ".join(label for label in MODEL_LABEL_ORDER if label in models)
 
 
 def project_name(cwd: Any, agent_memory_root: Path) -> str:
@@ -281,6 +337,7 @@ def aggregate(
     timezone_info: ZoneInfo,
     timezone_name: str,
     rate_card: Path,
+    session_index: Path,
     agent_memory_root: Path,
     computer_name: str,
 ) -> Report:
@@ -290,8 +347,10 @@ def aggregate(
     range_end_utc = range_end.astimezone(timezone.utc)
 
     rates = load_rates(rate_card)
+    session_titles = load_session_titles(session_index)
     projects: dict[str, Totals] = defaultdict(Totals)
     models: dict[str, Totals] = defaultdict(Totals)
+    sessions: dict[str, dict[str, SessionUsage]] = defaultdict(dict)
     overall = Totals()
     diagnostics = Diagnostics()
     seen: set[tuple[str, str, str, str]] = set()
@@ -345,31 +404,42 @@ def aggregate(
                 diagnostics.token_events_without_usage += 1
                 continue
 
+            session_id = current_session_id or path.stem
             total_usage = info.get("total_token_usage")
-            if current_session_id is not None:
-                identity = (
-                    current_session_id,
-                    timestamp.isoformat(),
-                    stable_json(total_usage),
-                    stable_json(last_usage),
-                )
-                if identity in seen:
-                    diagnostics.duplicate_events += 1
-                    continue
-                seen.add(identity)
+            identity = (
+                session_id,
+                timestamp.isoformat(),
+                stable_json(total_usage),
+                stable_json(last_usage),
+            )
+            if identity in seen:
+                diagnostics.duplicate_events += 1
+                continue
+            seen.add(identity)
 
             event_model = current_model or unique_file_model or "미분류"
+            event_model_label = model_label(event_model)
             event_project = project_name(current_cwd, agent_memory_root)
             event_rate = rate_for(rates, event_model, target_date)
-
+            event_totals = Totals()
             try:
-                projects[event_project].add(last_usage, event_rate)
-                models[event_model].add(last_usage, event_rate)
-                overall.add(last_usage, event_rate)
+                event_totals.add(last_usage, event_rate)
             except ValueError:
                 diagnostics.invalid_token_events += 1
                 continue
 
+            session = sessions[event_project].setdefault(
+                session_id,
+                SessionUsage(
+                    session_id=session_id,
+                    title=session_titles.get(session_id, "제목 미확인"),
+                ),
+            )
+            projects[event_project].merge(event_totals)
+            models[event_model_label].merge(event_totals)
+            session.totals.merge(event_totals)
+            overall.merge(event_totals)
+            session.models.add(event_model_label)
             diagnostics.aggregated_events += 1
 
         if file_has_target_event:
@@ -384,6 +454,7 @@ def aggregate(
         computer_name=computer_name,
         projects=dict(projects),
         models=dict(models),
+        sessions={project: dict(items) for project, items in sessions.items()},
         total=overall,
         diagnostics=diagnostics,
     )
@@ -392,9 +463,15 @@ def aggregate(
 def assert_report_integrity(report: Report) -> None:
     project_totals = sum_totals(report.projects.values())
     model_totals = sum_totals(report.models.values())
+    session_totals = sum_totals(
+        session.totals
+        for sessions in report.sessions.values()
+        for session in sessions.values()
+    )
     for name, candidate in (
         ("project", project_totals),
         ("model", model_totals),
+        ("session", session_totals),
     ):
         if candidate.total != report.total.total:
             raise RuntimeError(f"{name} total token mismatch")
@@ -407,16 +484,21 @@ def assert_report_integrity(report: Report) -> None:
         if abs(candidate.calculated_cost - report.total.calculated_cost) > 1e-9:
             raise RuntimeError(f"{name} calculated cost mismatch")
 
+    for project, project_total in report.projects.items():
+        candidate = sum_totals(
+            session.totals for session in report.sessions.get(project, {}).values()
+        )
+        for field_name in ("total", "cached_input", "input", "output", "events"):
+            if getattr(candidate, field_name) != getattr(project_total, field_name):
+                raise RuntimeError(f"{project} session {field_name} mismatch")
+        if abs(candidate.calculated_cost - project_total.calculated_cost) > 1e-9:
+            raise RuntimeError(f"{project} session calculated cost mismatch")
+
 
 def sum_totals(items: Any) -> Totals:
     result = Totals()
     for item in items:
-        result.total += item.total
-        result.cached_input += item.cached_input
-        result.input += item.input
-        result.output += item.output
-        result.calculated_cost += item.calculated_cost
-        result.events += item.events
+        result.merge(item)
     return result
 
 
@@ -425,9 +507,7 @@ def sorted_totals(values: dict[str, Totals]) -> list[tuple[str, Totals]]:
 
 
 def format_tokens(value: int) -> str:
-    if value >= 1_000_000_000:
-        return f"{value / 1_000_000_000:,.3f}B"
-    return f"{value / 1_000_000:,.3f}M"
+    return f"{value / 1_000_000:,.2f}M"
 
 
 def percent(value: int, total: int) -> str:
@@ -438,6 +518,10 @@ def percent(value: int, total: int) -> str:
 
 def token_cell(value: int, total: int) -> str:
     return f"{format_tokens(value)} ({percent(value, total)})"
+
+
+def escape_markdown(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ")
 
 
 def markdown_table(values: dict[str, Totals], total: Totals) -> list[str]:
@@ -455,7 +539,7 @@ def markdown_table(values: dict[str, Totals], total: Totals) -> list[str]:
                     token_cell(item.cached_input, item.total),
                     token_cell(item.input, item.total),
                     token_cell(item.output, item.total),
-                    f"${item.calculated_cost:.3f}",
+                    f"${item.calculated_cost:.2f}",
                 ]
             )
             + " |"
@@ -469,7 +553,67 @@ def markdown_table(values: dict[str, Totals], total: Totals) -> list[str]:
                 token_cell(total.cached_input, total.total),
                 token_cell(total.input, total.total),
                 token_cell(total.output, total.total),
-                f"${total.calculated_cost:.3f}",
+                f"${total.calculated_cost:.2f}",
+            ]
+        )
+        + " |"
+    )
+    return lines
+
+
+def markdown_project_sessions(report: Report) -> list[str]:
+    lines = [
+        "| 프로젝트 / 세션 | 모델 | 총 토큰 | 캐시 입력 | 입력 | 출력 | Standard API 환산 비용 |",
+        "|---|---|---:|---:|---:|---:|---:|",
+    ]
+    for project, project_total in sorted_totals(report.projects):
+        sessions = report.sessions.get(project, {})
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    f"**{escape_markdown(project)} 전체 ({len(sessions)}개)**",
+                    "",
+                    f"**{format_tokens(project_total.total)}**",
+                    f"**{format_tokens(project_total.cached_input)}**",
+                    f"**{format_tokens(project_total.input)}**",
+                    f"**{format_tokens(project_total.output)}**",
+                    f"**${project_total.calculated_cost:.2f}**",
+                ]
+            )
+            + " |"
+        )
+        for session in sorted(
+            sessions.values(),
+            key=lambda item: (-item.totals.total, item.title, item.session_id),
+        ):
+            item = session.totals
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        f"└ {escape_markdown(session.title)}",
+                        display_models(session.models),
+                        format_tokens(item.total),
+                        format_tokens(item.cached_input),
+                        format_tokens(item.input),
+                        format_tokens(item.output),
+                        f"${item.calculated_cost:.2f}",
+                    ]
+                )
+                + " |"
+            )
+    lines.append(
+        "| "
+        + " | ".join(
+            [
+                f"**전체 ({sum(len(items) for items in report.sessions.values())}개 세션)**",
+                "",
+                f"**{format_tokens(report.total.total)}**",
+                f"**{format_tokens(report.total.cached_input)}**",
+                f"**{format_tokens(report.total.input)}**",
+                f"**{format_tokens(report.total.output)}**",
+                f"**${report.total.calculated_cost:.2f}**",
             ]
         )
         + " |"
@@ -492,11 +636,12 @@ def render_markdown(report: Report) -> str:
         f"- 중복 제거 이벤트: {diagnostics.duplicate_events:,}개",
         f"- 집계 token_count 이벤트: {diagnostics.aggregated_events:,}개",
         f"- 프로젝트: {len(report.projects):,}개",
+        f"- 세션: {sum(len(items) for items in report.sessions.values()):,}개",
         f"- 모델: {len(report.models):,}개",
         "",
         "### 프로젝트별",
         "",
-        *markdown_table(report.projects, report.total),
+        *markdown_project_sessions(report),
         "",
         "### 모델별",
         "",
@@ -511,6 +656,34 @@ def report_to_json(report: Report) -> str:
             {"name": name, **asdict(total)} for name, total in sorted_totals(values)
         ]
 
+    def serialize_sessions() -> list[dict[str, Any]]:
+        projects: list[dict[str, Any]] = []
+        for project, project_total in sorted_totals(report.projects):
+            sessions = sorted(
+                report.sessions.get(project, {}).values(),
+                key=lambda item: (-item.totals.total, item.title, item.session_id),
+            )
+            projects.append(
+                {
+                    "project": project,
+                    "total": asdict(project_total),
+                    "sessions": [
+                        {
+                            "session_id": session.session_id,
+                            "title": session.title,
+                            "models": [
+                                label
+                                for label in MODEL_LABEL_ORDER
+                                if label in session.models
+                            ],
+                            **asdict(session.totals),
+                        }
+                        for session in sessions
+                    ],
+                }
+            )
+        return projects
+
     payload = {
         "date": report.target_date.isoformat(),
         "timezone": report.timezone_name,
@@ -523,6 +696,7 @@ def report_to_json(report: Report) -> str:
         "diagnostics": asdict(report.diagnostics),
         "projects": serialize_totals(report.projects),
         "models": serialize_totals(report.models),
+        "sessions": serialize_sessions(),
         "total": asdict(report.total),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
@@ -570,6 +744,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="TOML rate card",
     )
     parser.add_argument(
+        "--session-index",
+        type=Path,
+        default=DEFAULT_SESSION_INDEX,
+        help="Codex session title index",
+    )
+    parser.add_argument(
         "--agent-memory-root",
         type=Path,
         default=DEFAULT_AGENT_MEMORY_ROOT,
@@ -599,6 +779,7 @@ def main() -> int:
     target_date = parse_target_date(args.date, timezone_info)
     sessions_root = args.sessions_root.expanduser()
     rate_card = args.rate_card.expanduser()
+    session_index = args.session_index.expanduser()
     agent_memory_root = args.agent_memory_root.expanduser()
 
     if not sessions_root.is_dir():
@@ -612,6 +793,7 @@ def main() -> int:
         timezone_info=timezone_info,
         timezone_name=args.timezone,
         rate_card=rate_card,
+        session_index=session_index,
         agent_memory_root=agent_memory_root,
         computer_name=args.computer_name or detect_computer_name(),
     )
