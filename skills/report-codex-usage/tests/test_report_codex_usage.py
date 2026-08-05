@@ -112,6 +112,15 @@ class ReportIntegrationTests(unittest.TestCase):
                         output_tokens=10_000,
                     ),
                     {
+                        "timestamp": "2026-08-03T00:02:30Z",
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "info": None,
+                            "rate_limits": {"primary": {"used_percent": 10}},
+                        },
+                    },
+                    {
                         "timestamp": "2026-08-03T00:03:00Z",
                         "type": "event_msg",
                         "payload": {
@@ -166,6 +175,7 @@ class ReportIntegrationTests(unittest.TestCase):
                 computer_name="test-mac",
             )
             usage_report.assert_report_integrity(report)
+            self.assertEqual(report.diagnostics.token_events_without_usage, 1)
 
             markdown = usage_report.render_markdown(report)
             self.assertIn("**azbil 전체 (2개)**", markdown)

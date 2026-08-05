@@ -44,6 +44,7 @@ Return the script output without recalculating token counts, percentages, costs,
 ## Validation and failures
 
 - Treat a nonzero script exit as a failed report. Report the error and do not estimate missing values.
+- Ignore rate-limit status events whose `token_count.info` is null because they contain no usage delta.
 - Preserve the half-open date range shown by the script.
 - Confirm project, session, and model totals match the overall token and calculated-cost totals.
 - Keep models without a configured rate in token totals. Do not substitute another model's price.

@@ -802,7 +802,6 @@ def main() -> int:
     failures = {
         "malformed_lines": diagnostics.malformed_lines,
         "unreadable_files": diagnostics.unreadable_files,
-        "token_events_without_usage": diagnostics.token_events_without_usage,
         "invalid_token_events": diagnostics.invalid_token_events,
     }
     failures = {name: count for name, count in failures.items() if count}
