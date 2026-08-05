@@ -9,7 +9,6 @@ from datetime import date
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-
 SCRIPT = Path(__file__).parents[1] / "scripts" / "report_codex_usage.py"
 SPEC = importlib.util.spec_from_file_location("report_codex_usage", SCRIPT)
 if SPEC is None or SPEC.loader is None:
@@ -161,9 +160,7 @@ class ReportIntegrationTests(unittest.TestCase):
                 target_date=date(2026, 8, 3),
                 timezone_info=ZoneInfo("Asia/Seoul"),
                 timezone_name="Asia/Seoul",
-                rate_card=Path(__file__).parents[1]
-                / "references"
-                / "rate-card.toml",
+                rate_card=Path(__file__).parents[1] / "references" / "rate-card.toml",
                 session_index=session_index,
                 agent_memory_root=root / "agent-memory",
                 computer_name="test-mac",
