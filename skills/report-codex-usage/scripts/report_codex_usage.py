@@ -84,6 +84,7 @@ class Diagnostics:
     files_with_target_events: int = 0
     original_events: int = 0
     duplicate_events: int = 0
+    replayed_events: int = 0
     aggregated_events: int = 0
     malformed_lines: int = 0
     unreadable_files: int = 0
@@ -276,6 +277,8 @@ def projected_records(
                             "id": payload.get("id"),
                             "session_id": payload.get("session_id"),
                             "cwd": payload.get("cwd"),
+                            "parent_thread_id": payload.get("parent_thread_id"),
+                            "source": payload.get("source"),
                         },
                     )
                 )
@@ -318,6 +321,8 @@ def projected_records(
                         },
                     )
                 )
+            elif payload_type == "task_started":
+                records.append(("task_started", timestamp, {}))
             elif payload_type == "token_count":
                 records.append(
                     (
@@ -361,19 +366,53 @@ def aggregate(
     for path in files:
         records, file_models = projected_records(path, diagnostics)
         unique_file_model = next(iter(file_models)) if len(file_models) == 1 else None
-        current_session_id: str | None = None
+        first_meta = next(
+            (data for kind, _, data in records if kind == "session_meta"),
+            {},
+        )
+        rollout_id = first_meta.get("id")
+        if not isinstance(rollout_id, str) or not rollout_id:
+            rollout_id = path.stem
+        report_session_id = first_meta.get("session_id") or rollout_id
+        if not isinstance(report_session_id, str) or not report_session_id:
+            report_session_id = rollout_id
+
+        source = first_meta.get("source")
+        is_derived_rollout = bool(first_meta.get("parent_thread_id")) or (
+            isinstance(source, dict) and "subagent" in source
+        )
+        replay_cutoff: int | None = None
+        if is_derived_rollout:
+            last_foreign_meta = max(
+                (
+                    index
+                    for index, (kind, _, data) in enumerate(records)
+                    if kind == "session_meta"
+                    and data.get("id") != rollout_id
+                ),
+                default=None,
+            )
+            if last_foreign_meta is not None:
+                replay_cutoff = next(
+                    (
+                        index
+                        for index, (kind, _, _) in enumerate(records)
+                        if index > last_foreign_meta and kind == "task_started"
+                    ),
+                    None,
+                )
+
+        current_session_id = report_session_id
         current_cwd: str | None = None
         current_model: str | None = None
         file_has_target_event = False
 
-        for kind, timestamp, data in records:
+        for record_index, (kind, timestamp, data) in enumerate(records):
             if kind == "session_meta":
-                session_id = data.get("session_id") or data.get("id")
-                if isinstance(session_id, str) and session_id:
-                    current_session_id = session_id
-                cwd = data.get("cwd")
-                if isinstance(cwd, str) and cwd:
-                    current_cwd = cwd
+                if data.get("id") == rollout_id:
+                    cwd = data.get("cwd")
+                    if isinstance(cwd, str) and cwd:
+                        current_cwd = cwd
                 continue
 
             if kind in {"turn_context", "thread_settings"}:
@@ -385,6 +424,9 @@ def aggregate(
                     current_model = model
                 continue
 
+            if kind != "token_count":
+                continue
+
             if (
                 timestamp is None
                 or timestamp < range_start_utc
@@ -394,6 +436,9 @@ def aggregate(
 
             diagnostics.original_events += 1
             file_has_target_event = True
+            if replay_cutoff is not None and record_index < replay_cutoff:
+                diagnostics.replayed_events += 1
+                continue
             info = data.get("info")
             if not isinstance(info, dict):
                 diagnostics.token_events_without_usage += 1
@@ -404,7 +449,7 @@ def aggregate(
                 diagnostics.token_events_without_usage += 1
                 continue
 
-            session_id = current_session_id or path.stem
+            session_id = current_session_id
             total_usage = info.get("total_token_usage")
             identity = (
                 session_id,
@@ -634,6 +679,7 @@ def render_markdown(report: Report) -> str:
         f"- 집계 장치: {report.computer_name}",
         f"- 원본 token_count 이벤트: {diagnostics.original_events:,}개",
         f"- 중복 제거 이벤트: {diagnostics.duplicate_events:,}개",
+        f"- 상속 history 제외 이벤트: {diagnostics.replayed_events:,}개",
         f"- 집계 token_count 이벤트: {diagnostics.aggregated_events:,}개",
         f"- 프로젝트: {len(report.projects):,}개",
         f"- 세션: {sum(len(items) for items in report.sessions.values()):,}개",
