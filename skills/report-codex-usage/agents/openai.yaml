@@ -1,4 +1,4 @@
 interface:
   display_name: "Codex Usage Report"
-  short_description: "Codex 세션 로그의 토큰과 API 비용을 일별 집계"
-  default_prompt: "Use $report-codex-usage to generate a daily Codex token and Standard API cost report for yesterday in Asia/Seoul."
+  short_description: "Codex 프로젝트·세션·모델별 토큰과 API 비용 집계"
+  default_prompt: "Use $report-codex-usage to generate a daily Codex project, session, and model token and Standard API cost report for yesterday in Asia/Seoul."
