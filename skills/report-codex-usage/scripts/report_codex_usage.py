@@ -377,30 +377,24 @@ def aggregate(
         if not isinstance(report_session_id, str) or not report_session_id:
             report_session_id = rollout_id
 
-        source = first_meta.get("source")
-        is_derived_rollout = bool(first_meta.get("parent_thread_id")) or (
-            isinstance(source, dict) and "subagent" in source
-        )
         replay_cutoff: int | None = None
-        if is_derived_rollout:
-            last_foreign_meta = max(
+        last_foreign_meta = max(
+            (
+                index
+                for index, (kind, _, data) in enumerate(records)
+                if kind == "session_meta" and data.get("id") != rollout_id
+            ),
+            default=None,
+        )
+        if last_foreign_meta is not None:
+            replay_cutoff = next(
                 (
                     index
-                    for index, (kind, _, data) in enumerate(records)
-                    if kind == "session_meta"
-                    and data.get("id") != rollout_id
+                    for index, (kind, _, _) in enumerate(records)
+                    if index > last_foreign_meta and kind == "task_started"
                 ),
-                default=None,
+                None,
             )
-            if last_foreign_meta is not None:
-                replay_cutoff = next(
-                    (
-                        index
-                        for index, (kind, _, _) in enumerate(records)
-                        if index > last_foreign_meta and kind == "task_started"
-                    ),
-                    None,
-                )
 
         current_session_id = report_session_id
         current_cwd: str | None = None
@@ -452,7 +446,7 @@ def aggregate(
             session_id = current_session_id
             total_usage = info.get("total_token_usage")
             identity = (
-                session_id,
+                rollout_id,
                 timestamp.isoformat(),
                 stable_json(total_usage),
                 stable_json(last_usage),

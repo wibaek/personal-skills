@@ -81,6 +81,75 @@ class ModelDisplayTests(unittest.TestCase):
 
 
 class ReportIntegrationTests(unittest.TestCase):
+    def test_foreign_history_is_not_counted_in_root_rollout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sessions_root = root / "sessions"
+            session_index = root / "session_index.jsonl"
+
+            write_jsonl(session_index, [{"id": "root", "thread_name": "새 task"}])
+            write_jsonl(
+                sessions_root / "root.jsonl",
+                [
+                    {
+                        "timestamp": "2026-08-03T00:00:00.000Z",
+                        "type": "session_meta",
+                        "payload": {
+                            "id": "root",
+                            "session_id": "root",
+                            "cwd": "/tmp/root-project",
+                            "source": "vscode",
+                        },
+                    },
+                    {
+                        "timestamp": "2026-08-03T00:00:00.001Z",
+                        "type": "session_meta",
+                        "payload": {"id": "old", "cwd": "/tmp/old-project"},
+                    },
+                    token_count(
+                        "2026-08-03T00:00:00.001Z",
+                        input_tokens=900_000,
+                        cached_input_tokens=800_000,
+                        output_tokens=10_000,
+                    ),
+                    {
+                        "timestamp": "2026-08-03T00:00:01Z",
+                        "type": "event_msg",
+                        "payload": {"type": "task_started"},
+                    },
+                    {
+                        "timestamp": "2026-08-03T00:00:02Z",
+                        "type": "turn_context",
+                        "payload": {
+                            "cwd": "/tmp/root-project",
+                            "model": "gpt-5.6-sol",
+                        },
+                    },
+                    token_count(
+                        "2026-08-03T00:00:03Z",
+                        input_tokens=200_000,
+                        cached_input_tokens=100_000,
+                        output_tokens=10_000,
+                    ),
+                ],
+            )
+
+            report = usage_report.aggregate(
+                sessions_root=sessions_root,
+                target_date=date(2026, 8, 3),
+                timezone_info=ZoneInfo("Asia/Seoul"),
+                timezone_name="Asia/Seoul",
+                rate_card=Path(__file__).parents[1] / "references" / "rate-card.toml",
+                session_index=session_index,
+                agent_memory_root=root / "agent-memory",
+                computer_name="test-mac",
+            )
+
+            usage_report.assert_report_integrity(report)
+            self.assertEqual(report.diagnostics.replayed_events, 1)
+            self.assertEqual(report.diagnostics.aggregated_events, 1)
+            self.assertEqual(report.total.total, 210_000)
+
     def test_inherited_parent_history_is_not_counted_in_subagent_rollout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
