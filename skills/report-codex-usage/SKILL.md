@@ -32,6 +32,7 @@ Return the script output without recalculating token counts, percentages, costs,
 - Normalize model display labels to `sol`, `terra`, `luna`, `review`, or `other`.
 - Join multiple model labels in the fixed order above with `, `.
 - Show token values in millions and USD costs with two decimal places.
+- Show cached input, input, and output percentages relative to each row's total in both project/session and model tables.
 
 ## Data handling
 
@@ -45,6 +46,7 @@ Return the script output without recalculating token counts, percentages, costs,
 
 - Treat a nonzero script exit as a failed report. Report the error and do not estimate missing values.
 - Ignore rate-limit status events whose `token_count.info` is null because they contain no usage delta.
+- Exclude inherited history `token_count` records replayed at the start of any rollout file that embeds another session's metadata. Count only token events produced after the current task actually starts.
 - Preserve the half-open date range shown by the script.
 - Confirm project, session, and model totals match the overall token and calculated-cost totals.
 - Keep models without a configured rate in token totals. Do not substitute another model's price.
