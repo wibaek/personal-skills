@@ -575,9 +575,9 @@ def markdown_project_sessions(report: Report) -> list[str]:
                     f"**{escape_markdown(project)} 전체 ({len(sessions)}개)**",
                     "",
                     f"**{format_tokens(project_total.total)}**",
-                    f"**{format_tokens(project_total.cached_input)}**",
-                    f"**{format_tokens(project_total.input)}**",
-                    f"**{format_tokens(project_total.output)}**",
+                    f"**{token_cell(project_total.cached_input, project_total.total)}**",
+                    f"**{token_cell(project_total.input, project_total.total)}**",
+                    f"**{token_cell(project_total.output, project_total.total)}**",
                     f"**${project_total.calculated_cost:.2f}**",
                 ]
             )
@@ -595,9 +595,9 @@ def markdown_project_sessions(report: Report) -> list[str]:
                         f"└ {escape_markdown(session.title)}",
                         display_models(session.models),
                         format_tokens(item.total),
-                        format_tokens(item.cached_input),
-                        format_tokens(item.input),
-                        format_tokens(item.output),
+                        token_cell(item.cached_input, item.total),
+                        token_cell(item.input, item.total),
+                        token_cell(item.output, item.total),
                         f"${item.calculated_cost:.2f}",
                     ]
                 )
@@ -610,9 +610,9 @@ def markdown_project_sessions(report: Report) -> list[str]:
                 f"**전체 ({sum(len(items) for items in report.sessions.values())}개 세션)**",
                 "",
                 f"**{format_tokens(report.total.total)}**",
-                f"**{format_tokens(report.total.cached_input)}**",
-                f"**{format_tokens(report.total.input)}**",
-                f"**{format_tokens(report.total.output)}**",
+                f"**{token_cell(report.total.cached_input, report.total.total)}**",
+                f"**{token_cell(report.total.input, report.total.total)}**",
+                f"**{token_cell(report.total.output, report.total.total)}**",
                 f"**${report.total.calculated_cost:.2f}**",
             ]
         )

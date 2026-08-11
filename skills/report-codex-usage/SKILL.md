@@ -32,6 +32,7 @@ Return the script output without recalculating token counts, percentages, costs,
 - Normalize model display labels to `sol`, `terra`, `luna`, `review`, or `other`.
 - Join multiple model labels in the fixed order above with `, `.
 - Show token values in millions and USD costs with two decimal places.
+- Show cached input, input, and output percentages relative to each row's total in both project/session and model tables.
 
 ## Data handling
 

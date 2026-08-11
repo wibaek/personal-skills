@@ -76,6 +76,9 @@ class ModelDisplayTests(unittest.TestCase):
         self.assertEqual(usage_report.format_tokens(1_127_015_966), "1,127.02M")
         self.assertEqual(usage_report.format_tokens(1_000), "0.00M")
 
+    def test_token_cell_includes_share_of_row_total(self) -> None:
+        self.assertEqual(usage_report.token_cell(800_000, 1_000_000), "0.80M (80.0%)")
+
 
 class ReportIntegrationTests(unittest.TestCase):
     def test_project_rows_contain_nested_titled_sessions(self) -> None:
@@ -182,6 +185,12 @@ class ReportIntegrationTests(unittest.TestCase):
             self.assertIn("└ 아즈빌 설계 검토 | sol, review |", markdown)
             self.assertIn("└ 센서 구조 확인 | terra |", markdown)
             self.assertIn("1.73M", markdown)
+            self.assertIn("**1.30M (75.4%)**", markdown)
+            self.assertIn("**0.40M (23.2%)**", markdown)
+            self.assertIn("**0.03M (1.4%)**", markdown)
+            self.assertIn("1.20M (79.2%)", markdown)
+            self.assertIn("0.30M (19.8%)", markdown)
+            self.assertIn("0.01M (1.0%)", markdown)
             self.assertNotIn("sol + review", markdown)
 
             payload = json.loads(usage_report.report_to_json(report))
