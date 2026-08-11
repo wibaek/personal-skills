@@ -526,7 +526,7 @@ def escape_markdown(value: str) -> str:
 
 def markdown_table(values: dict[str, Totals], total: Totals) -> list[str]:
     lines = [
-        "| 이름 | 총 토큰 | 캐시 입력 | 입력 | 출력 | Standard API 환산 비용 |",
+        "| 이름 | 총 토큰 | 캐시 입력 | 입력 | 출력 | 비용 |",
         "|---|---:|---:|---:|---:|---:|",
     ]
     for name, item in sorted_totals(values):
@@ -563,7 +563,7 @@ def markdown_table(values: dict[str, Totals], total: Totals) -> list[str]:
 
 def markdown_project_sessions(report: Report) -> list[str]:
     lines = [
-        "| 프로젝트 / 세션 | 모델 | 총 토큰 | 캐시 입력 | 입력 | 출력 | Standard API 환산 비용 |",
+        "| 프로젝트 / 세션 | 모델 | 총 토큰 | 캐시 입력 | 입력 | 출력 | 비용 |",
         "|---|---|---:|---:|---:|---:|---:|",
     ]
     for project, project_total in sorted_totals(report.projects):
