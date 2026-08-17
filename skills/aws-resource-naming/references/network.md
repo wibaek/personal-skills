@@ -111,22 +111,22 @@ ninework-production-bastion-sg
 기본 템플릿:
 
 ```text
-<system>-<environment>-<scope>-<type>
+<system>-<environment>-<purpose>-<type>
 ```
 
-용도를 구분해야 하면:
+인터넷에 공개된 Load Balancer는 `public`을 추가한다.
 
 ```text
-<system>-<environment>-<scope>-<purpose>-<type>
+<system>-<environment>-public-<purpose>-<type>
 ```
 
 - system: `ninework`, `payments`, `auth`
-- environment: `development`, `staging`, `production`, `test`
-- scope: `public`, `internal`
+- environment: `dev`, `stg`, `prod`, `test`
 - purpose: 선택 항목. `web`, `api`
 - type: `alb`, `nlb`
+- 32자 제한을 고려해 이 리소스에서는 `dev`, `stg`, `prod`, `test` 축약형을 사용한다.
 - `public`은 AWS Scheme이 `internet-facing`인 Load Balancer에 사용한다.
-- `internal`은 AWS Scheme이 `internal`인 Load Balancer에 사용한다.
+- AWS Scheme이 `internal`이면 이름에 별도 scope를 넣지 않는다.
 - 이름은 최대 32자로 제한한다.
 - 이름은 계정과 Region 안에서 중복할 수 없다.
 - 이름에는 영문자, 숫자, 하이픈만 사용하며 하이픈으로 시작하거나 끝낼 수 없다.
@@ -138,11 +138,11 @@ ninework-production-bastion-sg
 예시:
 
 ```text
-ninework-production-public-alb
-auth-production-public-web-alb
-auth-production-internal-api-alb
-ninework-production-public-nlb
-auth-production-internal-api-nlb
+ninework-prod-public-alb
+auth-prod-public-web-alb
+auth-prod-api-alb
+ninework-prod-public-nlb
+auth-prod-api-nlb
 ```
 
 ## 5. Target Group 이름 짓는 법
@@ -160,9 +160,10 @@ auth-production-internal-api-nlb
 ```
 
 - system: `ninework`, `payments`, `auth`
-- environment: `development`, `staging`, `production`, `test`
+- environment: `dev`, `stg`, `prod`, `test`
 - component: `web`, `api`, `worker`, `admin`
-- purpose: 선택 항목. `management`, `migration`
+- purpose: 선택 항목. `migration`
+- 32자 제한을 고려해 이 리소스에서는 `dev`, `stg`, `prod`, `test` 축약형을 사용한다.
 - 연결된 ALB/NLB보다 실제 트래픽을 받는 구성요소를 기준으로 짓는다.
 - Target type, 프로토콜, 포트, 헬스 체크 설정은 이름에 넣지 않는다.
 - 이름은 최대 32자로 제한한다.
@@ -174,9 +175,9 @@ auth-production-internal-api-nlb
 예시:
 
 ```text
-ninework-production-web-tg
-ninework-production-api-tg
-auth-production-api-migration-tg
-payments-production-worker-tg
-auth-production-admin-tg
+ninework-prod-web-tg
+ninework-prod-api-tg
+auth-prod-api-migration-tg
+payments-prod-worker-tg
+auth-prod-admin-tg
 ```
