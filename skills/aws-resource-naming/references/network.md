@@ -153,23 +153,15 @@ auth-prod-api-nlb
 <system>-<environment>-<component>-tg
 ```
 
-용도를 구분해야 하면:
-
-```text
-<system>-<environment>-<component>-<purpose>-tg
-```
-
 - system: `ninework`, `payments`, `auth`
 - environment: `dev`, `stg`, `prod`, `test`
 - component: `web`, `api`, `worker`, `admin`
-- purpose: 선택 항목. `migration`
 - 32자 제한을 고려해 이 리소스에서는 `dev`, `stg`, `prod`, `test` 축약형을 사용한다.
 - 연결된 ALB/NLB보다 실제 트래픽을 받는 구성요소를 기준으로 짓는다.
 - Target type, 프로토콜, 포트, 헬스 체크 설정은 이름에 넣지 않는다.
 - 이름은 최대 32자로 제한한다.
 - 이름은 계정과 Region 안에서 중복할 수 없다.
 - 이름에는 영문자, 숫자, 하이픈만 사용하며 하이픈으로 시작하거나 끝낼 수 없다.
-- 구분할 별도 용도가 없으면 `purpose`를 생략한다. 이름에 `null`을 넣지 않는다.
 - 32자 제한을 고려해 `target-group` 대신 `tg`를 suffix로 사용한다.
 
 예시:
@@ -177,7 +169,6 @@ auth-prod-api-nlb
 ```text
 ninework-prod-web-tg
 ninework-prod-api-tg
-auth-prod-api-migration-tg
 payments-prod-worker-tg
 auth-prod-admin-tg
 ```
