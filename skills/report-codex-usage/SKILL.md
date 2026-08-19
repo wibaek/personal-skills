@@ -21,13 +21,14 @@ Use an explicit date for reproducible historical reports:
 python3 scripts/report_codex_usage.py --date 2026-07-31 --timezone Asia/Seoul --format markdown
 ```
 
-Use `--format json` when machine-readable totals or further analysis is required. Pass `--sessions-root` only when reading a non-default Codex session directory or a test fixture. Session titles come from `~/.codex/session_index.jsonl`; use `--session-index` only for a non-default index or fixture.
+Use `--format json` when machine-readable totals or further analysis is required. Pass `--sessions-root` only when reading a non-default Codex session directory or a test fixture. Session titles come from `~/.codex/session_index.jsonl`; use `--session-index` only for a non-default index or fixture. Project assignments come from `~/.codex/.codex-global-state.json`; use `--global-state` only for a non-default state file or fixture.
 
 Return the script output without recalculating token counts, percentages, costs, or event counts in the model response.
 
 ## Report format
 
 - Show each project aggregate first, followed by its indented session rows.
+- Resolve a task's project from the current Codex UI assignment in `thread-project-assignments`, then use the matching `local-projects` name. Attribute subagent usage to its root task's assignment. Use `미분류` when no retained assignment exists.
 - Resolve session titles from the session index. Use `제목 미확인` when no title is available.
 - Normalize model display labels to `sol`, `terra`, `luna`, `review`, or `other`.
 - Join multiple model labels in the fixed order above with `, `.
@@ -36,9 +37,10 @@ Return the script output without recalculating token counts, percentages, costs,
 
 ## Data handling
 
-- Read only local `~/.codex/sessions/**/*.jsonl`, `~/.codex/archived_sessions/**/*.jsonl`, and `~/.codex/session_index.jsonl` unless the user provides another root.
+- Read only local `~/.codex/sessions/**/*.jsonl`, `~/.codex/archived_sessions/**/*.jsonl`, `~/.codex/session_index.jsonl`, and `~/.codex/.codex-global-state.json` unless the user provides another root.
 - Access only the fields projected by the script from `session_meta`, `turn_context`, `event_msg.thread_settings_applied`, and `event_msg.token_count`.
 - Access only `id` and `thread_name` from the session index. When a session has multiple title records, use the last title.
+- Access only `local-projects[*].name` and each `thread-project-assignments` entry's `projectKind` and `projectId` from the global state. Treat it as the current assignment, including for historical usage; do not infer a project from the task cwd.
 - Never print, summarize, retain, or reason about message, prompt, response, or tool-call bodies.
 - Keep the report read-only. Do not create report files unless the user explicitly requests one.
 
