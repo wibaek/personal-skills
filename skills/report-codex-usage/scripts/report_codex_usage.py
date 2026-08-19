@@ -625,7 +625,7 @@ def markdown_project_sessions(report: Report) -> list[str]:
             "| "
             + " | ".join(
                 [
-                    f"**{escape_markdown(project)} 전체 ({len(sessions)}개)**",
+                    f"**{escape_markdown(project)} ({len(sessions)}개)**",
                     "",
                     f"**{format_tokens(project_total.total)}**",
                     f"**{token_cell(project_total.cached_input, project_total.total)}**",
