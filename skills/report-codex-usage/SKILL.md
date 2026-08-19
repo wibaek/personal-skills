@@ -30,7 +30,7 @@ Return the script output without recalculating token counts, percentages, costs,
 - Show each project aggregate first, followed by its indented session rows.
 - Resolve a task's project from the current Codex UI assignment in `thread-project-assignments`, then use the matching `local-projects` name. Attribute subagent usage to its root task's assignment. Use `미분류` when no retained assignment exists.
 - Resolve session titles from the session index. Use `제목 미확인` when no title is available.
-- Normalize model display labels to `sol`, `terra`, `luna`, `review`, or `other`.
+- Normalize model display labels to `sol`, `terra`, `luna`, `5.5`, `5.4`, `review`, or `other`.
 - Join multiple model labels in the fixed order above with `, `.
 - Show token values in millions and USD costs with two decimal places.
 - Show cached input, input, and output percentages relative to each row's total in both project/session and model tables.

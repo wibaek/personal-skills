@@ -20,7 +20,7 @@ DEFAULT_SESSIONS_ROOT = Path.home() / ".codex" / "sessions"
 DEFAULT_ARCHIVED_SESSIONS_ROOT = Path.home() / ".codex" / "archived_sessions"
 DEFAULT_SESSION_INDEX = Path.home() / ".codex" / "session_index.jsonl"
 DEFAULT_GLOBAL_STATE = Path.home() / ".codex" / ".codex-global-state.json"
-MODEL_LABEL_ORDER = ("sol", "terra", "luna", "review", "other")
+MODEL_LABEL_ORDER = ("sol", "terra", "luna", "5.5", "5.4", "review", "other")
 
 
 @dataclass(frozen=True)
@@ -253,6 +253,10 @@ def model_label(model: str) -> str:
         return "terra"
     if "luna" in normalized:
         return "luna"
+    if normalized == "gpt-5.5" or normalized.startswith("gpt-5.5-"):
+        return "5.5"
+    if normalized == "gpt-5.4" or normalized.startswith("gpt-5.4-"):
+        return "5.4"
     if normalized == "codex-auto-review" or "auto-review" in normalized:
         return "review"
     return "other"
