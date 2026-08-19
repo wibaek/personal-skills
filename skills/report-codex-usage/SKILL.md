@@ -36,7 +36,7 @@ Return the script output without recalculating token counts, percentages, costs,
 
 ## Data handling
 
-- Read only local `~/.codex/sessions/**/*.jsonl` and `~/.codex/session_index.jsonl` unless the user provides another root.
+- Read only local `~/.codex/sessions/**/*.jsonl`, `~/.codex/archived_sessions/**/*.jsonl`, and `~/.codex/session_index.jsonl` unless the user provides another root.
 - Access only the fields projected by the script from `session_meta`, `turn_context`, `event_msg.thread_settings_applied`, and `event_msg.token_count`.
 - Access only `id` and `thread_name` from the session index. When a session has multiple title records, use the last title.
 - Never print, summarize, retain, or reason about message, prompt, response, or tool-call bodies.

@@ -17,6 +17,7 @@ import tomllib
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_RATE_CARD = SKILL_ROOT / "references" / "rate-card.toml"
 DEFAULT_SESSIONS_ROOT = Path.home() / ".codex" / "sessions"
+DEFAULT_ARCHIVED_SESSIONS_ROOT = Path.home() / ".codex" / "archived_sessions"
 DEFAULT_SESSION_INDEX = Path.home() / ".codex" / "session_index.jsonl"
 DEFAULT_AGENT_MEMORY_ROOT = Path.home() / "agent-memory"
 MODEL_LABEL_ORDER = ("sol", "terra", "luna", "review", "other")
@@ -338,6 +339,7 @@ def projected_records(
 def aggregate(
     *,
     sessions_root: Path,
+    additional_sessions_roots: tuple[Path, ...] = (),
     target_date: date,
     timezone_info: ZoneInfo,
     timezone_name: str,
@@ -360,7 +362,11 @@ def aggregate(
     diagnostics = Diagnostics()
     seen: set[tuple[str, str, str, str]] = set()
 
-    files = sorted(sessions_root.rglob("*.jsonl"))
+    files = sorted(
+        path
+        for root in (sessions_root, *additional_sessions_roots)
+        for path in root.rglob("*.jsonl")
+    )
     diagnostics.files_scanned = len(files)
 
     for path in files:
@@ -378,6 +384,7 @@ def aggregate(
             report_session_id = rollout_id
 
         replay_cutoff: int | None = None
+        replay_only_rollout = False
         last_foreign_meta = max(
             (
                 index
@@ -395,6 +402,7 @@ def aggregate(
                 ),
                 None,
             )
+            replay_only_rollout = replay_cutoff is None
 
         current_session_id = report_session_id
         current_cwd: str | None = None
@@ -430,7 +438,9 @@ def aggregate(
 
             diagnostics.original_events += 1
             file_has_target_event = True
-            if replay_cutoff is not None and record_index < replay_cutoff:
+            if replay_only_rollout or (
+                replay_cutoff is not None and record_index < replay_cutoff
+            ):
                 diagnostics.replayed_events += 1
                 continue
             info = data.get("info")
@@ -774,8 +784,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sessions-root",
         type=Path,
-        default=DEFAULT_SESSIONS_ROOT,
-        help="Codex sessions directory",
+        help="override the default active and archived Codex session directories",
     )
     parser.add_argument(
         "--rate-card",
@@ -817,7 +826,14 @@ def main() -> int:
         parser.error(f"unknown timezone: {args.timezone}")
 
     target_date = parse_target_date(args.date, timezone_info)
-    sessions_root = args.sessions_root.expanduser()
+    if args.sessions_root is None:
+        sessions_root = DEFAULT_SESSIONS_ROOT
+        additional_sessions_roots = tuple(
+            root for root in (DEFAULT_ARCHIVED_SESSIONS_ROOT,) if root.is_dir()
+        )
+    else:
+        sessions_root = args.sessions_root.expanduser()
+        additional_sessions_roots = ()
     rate_card = args.rate_card.expanduser()
     session_index = args.session_index.expanduser()
     agent_memory_root = args.agent_memory_root.expanduser()
@@ -829,6 +845,7 @@ def main() -> int:
 
     report = aggregate(
         sessions_root=sessions_root,
+        additional_sessions_roots=additional_sessions_roots,
         target_date=target_date,
         timezone_info=timezone_info,
         timezone_name=args.timezone,
