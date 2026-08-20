@@ -1,6 +1,16 @@
 #!/bin/sh
 set -eu
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 target_dir="${TMPDIR:-/tmp}/report-codex-usage-rust-target"
-exec cargo run --quiet --release --target-dir "$target_dir" --manifest-path "$script_dir/rust/Cargo.toml" -- "$@"
+manifest_path="$script_dir/rust/Cargo.toml"
+binary_path="$target_dir/release/report-codex-usage"
+
+if command -v cargo >/dev/null 2>&1; then
+  if cargo build --quiet --locked --release --target-dir "$target_dir" --manifest-path "$manifest_path"; then
+    exec "$binary_path" "$@"
+  fi
+  echo "Rust 집계기 빌드에 실패해 Python 집계기로 전환합니다." >&2
+fi
+
+exec python3 "$script_dir/report_codex_usage.py" "$@"
