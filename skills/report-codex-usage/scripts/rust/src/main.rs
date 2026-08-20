@@ -197,20 +197,9 @@ struct Report {
 #[derive(Default, Deserialize)]
 struct RawRow {
     #[serde(rename = "type")]
-    row_type: Option<String>,
-    timestamp: Option<String>,
-    payload: Option<RawPayload>,
-}
-
-#[derive(Default, Deserialize)]
-struct RawPayload {
-    id: Option<Value>,
-    session_id: Option<Value>,
-    model: Option<Value>,
-    #[serde(rename = "type")]
-    payload_type: Option<Value>,
-    thread_settings: Option<Value>,
-    info: Option<Value>,
+    row_type: Option<Value>,
+    timestamp: Option<Value>,
+    payload: Option<Value>,
 }
 
 enum Record {
@@ -447,38 +436,41 @@ fn process_file(path: &Path, range_start: DateTime<Utc>, range_end: DateTime<Utc
                 continue;
             }
         };
-        let payload = row.payload.unwrap_or_default();
-        match row.row_type.as_deref() {
+        let payload = row.payload.as_ref().and_then(Value::as_object);
+        let timestamp = parse_timestamp(value_string(row.timestamp.as_ref()).as_deref());
+        let row_type = value_string(row.row_type.as_ref());
+        match row_type.as_deref() {
             Some("session_meta") => records.push(Record::SessionMeta {
-                id: value_string(payload.id.as_ref()),
-                session_id: value_string(payload.session_id.as_ref()),
+                id: value_string(payload.and_then(|payload| payload.get("id"))),
+                session_id: value_string(payload.and_then(|payload| payload.get("session_id"))),
             }),
             Some("turn_context") => {
-                let model = value_string(payload.model.as_ref());
+                let model = value_string(payload.and_then(|payload| payload.get("model")));
                 if let Some(model) = &model {
                     file_models.insert(model.clone());
                 }
                 records.push(Record::Model(model));
             }
-            Some("event_msg") => match value_string(payload.payload_type.as_ref()).as_deref() {
-                Some("thread_settings_applied") => {
-                    let model = payload
-                        .thread_settings
-                        .as_ref()
-                        .and_then(Value::as_object)
-                        .and_then(|settings| value_string(settings.get("model")));
-                    if let Some(model) = &model {
-                        file_models.insert(model.clone());
+            Some("event_msg") => {
+                match value_string(payload.and_then(|payload| payload.get("type"))).as_deref() {
+                    Some("thread_settings_applied") => {
+                        let model = payload
+                            .and_then(|payload| payload.get("thread_settings"))
+                            .and_then(Value::as_object)
+                            .and_then(|settings| value_string(settings.get("model")));
+                        if let Some(model) = &model {
+                            file_models.insert(model.clone());
+                        }
+                        records.push(Record::Model(model));
                     }
-                    records.push(Record::Model(model));
+                    Some("task_started") => records.push(Record::TaskStarted),
+                    Some("token_count") => records.push(Record::TokenCount {
+                        timestamp,
+                        info: payload.and_then(|payload| payload.get("info")).cloned(),
+                    }),
+                    _ => {}
                 }
-                Some("task_started") => records.push(Record::TaskStarted),
-                Some("token_count") => records.push(Record::TokenCount {
-                    timestamp: parse_timestamp(row.timestamp.as_deref()),
-                    info: payload.info,
-                }),
-                _ => {}
-            },
+            }
             _ => {}
         }
     }
@@ -1109,6 +1101,13 @@ fn home_path(path: &str) -> PathBuf {
         .join(path)
 }
 
+fn expand_user(path: PathBuf) -> PathBuf {
+    if let (Ok(relative), Some(home)) = (path.strip_prefix("~"), env::var_os("HOME")) {
+        return PathBuf::from(home).join(relative);
+    }
+    path
+}
+
 fn parse_target_date(value: &str, timezone: Tz) -> Result<NaiveDate> {
     let today = Utc::now().with_timezone(&timezone).date_naive();
     match value {
@@ -1126,15 +1125,20 @@ fn run() -> Result<i32> {
         .parse::<Tz>()
         .with_context(|| format!("알 수 없는 timezone: {}", cli.timezone))?;
     let target_date = parse_target_date(&cli.date, timezone)?;
-    let rate_card = cli.rate_card.unwrap_or_else(default_rate_card);
+    let rate_card = cli
+        .rate_card
+        .map(expand_user)
+        .unwrap_or_else(default_rate_card);
     let session_index = cli
         .session_index
+        .map(expand_user)
         .unwrap_or_else(|| home_path(".codex/session_index.jsonl"));
     let global_state = cli
         .global_state
+        .map(expand_user)
         .unwrap_or_else(|| home_path(".codex/.codex-global-state.json"));
     let roots = if let Some(root) = cli.sessions_root {
-        vec![root]
+        vec![expand_user(root)]
     } else {
         let mut roots = vec![home_path(".codex/sessions")];
         let archived = home_path(".codex/archived_sessions");
