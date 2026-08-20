@@ -22,6 +22,7 @@ scripts/report_codex_usage --date 2026-07-31 --timezone Asia/Seoul --format mark
 ```
 
 The launcher builds the bundled Rust aggregator on its first run and reuses the cached release build afterward.
+Use `scripts/report_codex_usage_go` only when explicitly comparing or validating the bundled Go port; keep the Rust launcher as the normal report path.
 
 Use `--format json` when machine-readable totals or further analysis is required. Pass `--sessions-root` only when reading a non-default Codex session directory or a test fixture. Session titles come from `~/.codex/session_index.jsonl`; use `--session-index` only for a non-default index or fixture. Project assignments come from `~/.codex/.codex-global-state.json`; use `--global-state` only for a non-default state file or fixture.
 
