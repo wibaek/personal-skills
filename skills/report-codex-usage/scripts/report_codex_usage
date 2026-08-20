@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+target_dir="${TMPDIR:-/tmp}/report-codex-usage-rust-target"
+exec cargo run --quiet --release --target-dir "$target_dir" --manifest-path "$script_dir/rust/Cargo.toml" -- "$@"

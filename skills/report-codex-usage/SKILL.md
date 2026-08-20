@@ -12,14 +12,16 @@ Generate reports with the bundled deterministic script. Do not recreate the aggr
 Run from the skill directory:
 
 ```bash
-python3 scripts/report_codex_usage.py --date yesterday --timezone Asia/Seoul --format markdown
+scripts/report_codex_usage --date yesterday --timezone Asia/Seoul --format markdown
 ```
 
 Use an explicit date for reproducible historical reports:
 
 ```bash
-python3 scripts/report_codex_usage.py --date 2026-07-31 --timezone Asia/Seoul --format markdown
+scripts/report_codex_usage --date 2026-07-31 --timezone Asia/Seoul --format markdown
 ```
+
+The launcher builds the bundled Rust aggregator on its first run and reuses the cached release build afterward.
 
 Use `--format json` when machine-readable totals or further analysis is required. Pass `--sessions-root` only when reading a non-default Codex session directory or a test fixture. Session titles come from `~/.codex/session_index.jsonl`; use `--session-index` only for a non-default index or fixture. Project assignments come from `~/.codex/.codex-global-state.json`; use `--global-state` only for a non-default state file or fixture.
 
