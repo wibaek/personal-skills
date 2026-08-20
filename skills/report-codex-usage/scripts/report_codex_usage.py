@@ -17,9 +17,10 @@ import tomllib
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_RATE_CARD = SKILL_ROOT / "references" / "rate-card.toml"
 DEFAULT_SESSIONS_ROOT = Path.home() / ".codex" / "sessions"
+DEFAULT_ARCHIVED_SESSIONS_ROOT = Path.home() / ".codex" / "archived_sessions"
 DEFAULT_SESSION_INDEX = Path.home() / ".codex" / "session_index.jsonl"
-DEFAULT_AGENT_MEMORY_ROOT = Path.home() / "agent-memory"
-MODEL_LABEL_ORDER = ("sol", "terra", "luna", "review", "other")
+DEFAULT_GLOBAL_STATE = Path.home() / ".codex" / ".codex-global-state.json"
+MODEL_LABEL_ORDER = ("sol", "terra", "luna", "5.5", "5.4", "review", "other")
 
 
 @dataclass(frozen=True)
@@ -212,6 +213,38 @@ def load_session_titles(path: Path) -> dict[str, str]:
     return titles
 
 
+def load_project_assignments(path: Path) -> dict[str, str]:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            state = json.load(handle)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+
+    raw_projects = state.get("local-projects")
+    raw_assignments = state.get("thread-project-assignments")
+    if not isinstance(raw_projects, dict) or not isinstance(raw_assignments, dict):
+        return {}
+
+    project_names: dict[str, str] = {}
+    for project_id, project in raw_projects.items():
+        if not isinstance(project_id, str) or not isinstance(project, dict):
+            continue
+        name = project.get("name")
+        if isinstance(name, str) and name:
+            project_names[project_id] = name
+
+    assignments: dict[str, str] = {}
+    for thread_id, assignment in raw_assignments.items():
+        if not isinstance(thread_id, str) or not isinstance(assignment, dict):
+            continue
+        if assignment.get("projectKind") != "local":
+            continue
+        project_id = assignment.get("projectId")
+        if isinstance(project_id, str) and project_id in project_names:
+            assignments[thread_id] = project_names[project_id]
+    return assignments
+
+
 def model_label(model: str) -> str:
     normalized = model.lower()
     if normalized in {"gpt-5.6", "gpt-5.6-sol"} or "5.6-sol" in normalized:
@@ -220,6 +253,10 @@ def model_label(model: str) -> str:
         return "terra"
     if "luna" in normalized:
         return "luna"
+    if normalized == "gpt-5.5" or normalized.startswith("gpt-5.5-"):
+        return "5.5"
+    if normalized == "gpt-5.4" or normalized.startswith("gpt-5.4-"):
+        return "5.4"
     if normalized == "codex-auto-review" or "auto-review" in normalized:
         return "review"
     return "other"
@@ -227,18 +264,6 @@ def model_label(model: str) -> str:
 
 def display_models(models: set[str]) -> str:
     return ", ".join(label for label in MODEL_LABEL_ORDER if label in models)
-
-
-def project_name(cwd: Any, agent_memory_root: Path) -> str:
-    if not isinstance(cwd, str) or not cwd:
-        return "미분류"
-
-    normalized = Path(cwd).expanduser()
-    try:
-        normalized.relative_to(agent_memory_root)
-        return "agent-memory"
-    except ValueError:
-        return normalized.name or "미분류"
 
 
 def projected_records(
@@ -276,9 +301,6 @@ def projected_records(
                         {
                             "id": payload.get("id"),
                             "session_id": payload.get("session_id"),
-                            "cwd": payload.get("cwd"),
-                            "parent_thread_id": payload.get("parent_thread_id"),
-                            "source": payload.get("source"),
                         },
                     )
                 )
@@ -292,10 +314,7 @@ def projected_records(
                     (
                         "turn_context",
                         timestamp,
-                        {
-                            "cwd": payload.get("cwd"),
-                            "model": model,
-                        },
+                        {"model": model},
                     )
                 )
                 continue
@@ -315,10 +334,7 @@ def projected_records(
                     (
                         "thread_settings",
                         timestamp,
-                        {
-                            "cwd": settings.get("cwd"),
-                            "model": model,
-                        },
+                        {"model": model},
                     )
                 )
             elif payload_type == "task_started":
@@ -338,12 +354,13 @@ def projected_records(
 def aggregate(
     *,
     sessions_root: Path,
+    additional_sessions_roots: tuple[Path, ...] = (),
     target_date: date,
     timezone_info: ZoneInfo,
     timezone_name: str,
     rate_card: Path,
     session_index: Path,
-    agent_memory_root: Path,
+    global_state: Path,
     computer_name: str,
 ) -> Report:
     range_start = datetime.combine(target_date, time.min, timezone_info)
@@ -353,6 +370,7 @@ def aggregate(
 
     rates = load_rates(rate_card)
     session_titles = load_session_titles(session_index)
+    project_assignments = load_project_assignments(global_state)
     projects: dict[str, Totals] = defaultdict(Totals)
     models: dict[str, Totals] = defaultdict(Totals)
     sessions: dict[str, dict[str, SessionUsage]] = defaultdict(dict)
@@ -360,7 +378,11 @@ def aggregate(
     diagnostics = Diagnostics()
     seen: set[tuple[str, str, str, str]] = set()
 
-    files = sorted(sessions_root.rglob("*.jsonl"))
+    files = sorted(
+        path
+        for root in (sessions_root, *additional_sessions_roots)
+        for path in root.rglob("*.jsonl")
+    )
     diagnostics.files_scanned = len(files)
 
     for path in files:
@@ -378,6 +400,7 @@ def aggregate(
             report_session_id = rollout_id
 
         replay_cutoff: int | None = None
+        replay_only_rollout = False
         last_foreign_meta = max(
             (
                 index
@@ -395,24 +418,17 @@ def aggregate(
                 ),
                 None,
             )
+            replay_only_rollout = replay_cutoff is None
 
         current_session_id = report_session_id
-        current_cwd: str | None = None
         current_model: str | None = None
         file_has_target_event = False
 
         for record_index, (kind, timestamp, data) in enumerate(records):
             if kind == "session_meta":
-                if data.get("id") == rollout_id:
-                    cwd = data.get("cwd")
-                    if isinstance(cwd, str) and cwd:
-                        current_cwd = cwd
                 continue
 
             if kind in {"turn_context", "thread_settings"}:
-                cwd = data.get("cwd")
-                if isinstance(cwd, str) and cwd:
-                    current_cwd = cwd
                 model = data.get("model")
                 if isinstance(model, str) and model:
                     current_model = model
@@ -430,7 +446,9 @@ def aggregate(
 
             diagnostics.original_events += 1
             file_has_target_event = True
-            if replay_cutoff is not None and record_index < replay_cutoff:
+            if replay_only_rollout or (
+                replay_cutoff is not None and record_index < replay_cutoff
+            ):
                 diagnostics.replayed_events += 1
                 continue
             info = data.get("info")
@@ -458,7 +476,7 @@ def aggregate(
 
             event_model = current_model or unique_file_model or "미분류"
             event_model_label = model_label(event_model)
-            event_project = project_name(current_cwd, agent_memory_root)
+            event_project = project_assignments.get(report_session_id, "미분류")
             event_rate = rate_for(rates, event_model, target_date)
             event_totals = Totals()
             try:
@@ -611,7 +629,7 @@ def markdown_project_sessions(report: Report) -> list[str]:
             "| "
             + " | ".join(
                 [
-                    f"**{escape_markdown(project)} 전체 ({len(sessions)}개)**",
+                    f"**{escape_markdown(project)} ({len(sessions)}개)**",
                     "",
                     f"**{format_tokens(project_total.total)}**",
                     f"**{token_cell(project_total.cached_input, project_total.total)}**",
@@ -774,8 +792,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sessions-root",
         type=Path,
-        default=DEFAULT_SESSIONS_ROOT,
-        help="Codex sessions directory",
+        help="override the default active and archived Codex session directories",
     )
     parser.add_argument(
         "--rate-card",
@@ -790,10 +807,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Codex session title index",
     )
     parser.add_argument(
-        "--agent-memory-root",
+        "--global-state",
         type=Path,
-        default=DEFAULT_AGENT_MEMORY_ROOT,
-        help="Path grouped under the agent-memory project name",
+        default=DEFAULT_GLOBAL_STATE,
+        help="Codex desktop global state containing UI project assignments",
     )
     parser.add_argument(
         "--computer-name",
@@ -817,10 +834,17 @@ def main() -> int:
         parser.error(f"unknown timezone: {args.timezone}")
 
     target_date = parse_target_date(args.date, timezone_info)
-    sessions_root = args.sessions_root.expanduser()
+    if args.sessions_root is None:
+        sessions_root = DEFAULT_SESSIONS_ROOT
+        additional_sessions_roots = tuple(
+            root for root in (DEFAULT_ARCHIVED_SESSIONS_ROOT,) if root.is_dir()
+        )
+    else:
+        sessions_root = args.sessions_root.expanduser()
+        additional_sessions_roots = ()
     rate_card = args.rate_card.expanduser()
     session_index = args.session_index.expanduser()
-    agent_memory_root = args.agent_memory_root.expanduser()
+    global_state = args.global_state.expanduser()
 
     if not sessions_root.is_dir():
         parser.error(f"sessions root does not exist: {sessions_root}")
@@ -829,12 +853,13 @@ def main() -> int:
 
     report = aggregate(
         sessions_root=sessions_root,
+        additional_sessions_roots=additional_sessions_roots,
         target_date=target_date,
         timezone_info=timezone_info,
         timezone_name=args.timezone,
         rate_card=rate_card,
         session_index=session_index,
-        agent_memory_root=agent_memory_root,
+        global_state=global_state,
         computer_name=args.computer_name or detect_computer_name(),
     )
 
